@@ -18,11 +18,13 @@ AUTHORIZED_USERS = {
 
 # Microphones which will be muted/unmuted when `mute` is given.
 MICROPHONES = {
+    # 'OBS microphone source name'
     'A_Desktop Audio',
     }
 
 # Mapping between scene names and OBS names.  Edit to suit you.
 SCENES = {
+    # 'ID': 'OBS scene name'
     'blank': 'Empty',
     'title': 'Title card',
     'gallery': 'Gallery',
@@ -44,7 +46,8 @@ ws = obsws(host, port, password)
 
 
 
-### Initial connection: verify websocket and scenes are correct
+### Initial connection: verify websocket and verify that the scenes, microphones, and other things above are correct.
+
 ws.connect()
 # Test the OBS scenes (video)
 ret = ws.call(requests.GetSceneList())
@@ -63,7 +66,10 @@ for mic in MICROPHONES:
 ws.disconnect()
 
 
+# Dispatchers is a mapping that directs commands to functions, based on
+# compiled regex objects.
 DISPATCHERS = {
+    # compiled_regex: function_to_call,
     }
 def dispatcher(regex, regex_options=re.I|re.M):
     """Decorator to add a function to DISPATCHERS"""
@@ -81,7 +87,9 @@ def dispatcher(regex, regex_options=re.I|re.M):
 
 @dispatcher(re.compile(r'^(?:switch)\s*(.*)', re.I|re.M))
 def switch(bh, msg, scene):
+    """Switch OBS scenes"""
     print(scene)
+    # Help text
     help = '\n'.join(['available scenes: '+ ' '.join(
                                  '`'+x+'`' for x in sorted(SCENES.keys())),
             'switch with `switch $NAME`',
@@ -90,12 +98,16 @@ def switch(bh, msg, scene):
         return help
 
     ws.connect()
+    # Set the scene
     ws.call(requests.SetCurrentScene(SCENES[scene]))
+    # Get current scene and verify it is as expected
     ret = ws.call(requests.GetCurrentScene())
     ws.disconnect()
+    # React if it works
     if ret.getName() == SCENES[scene]:
         bh.react(msg, 'check_mark')
 
+# Create shortcut scene switchers
 for scenename in SCENES.keys():
     @dispatcher('^%s\s*'%scenename)
     def switch_to(bh, msg, scenename=scenename):
@@ -123,14 +135,19 @@ def help_(bh, msg):
 @dispatcher(r'^mute\s*')
 def mute(bh, msg, mute=True):
     ws.connect()
+    # Request everything be muted
     for mic in MICROPHONES:
         ws.call(requests.SetMute(mic, mute=mute))
+    # Go through again, verify that all the muting worked
     mute_status = []
     for mic in MICROPHONES:
         ret = ws.call(requests.GetMute(mic))
         print(ret)
         mute_status.append(ret.getMuted())
     ws.disconnect()
+    # React based on if everything was muted or not.  React based on current
+    # status (currently muted or not), not based on if it was successful or
+    # not.
     if all(mute_status):
         bh.react(msg, 'mute_notifications')
     elif not any(mute_status):
@@ -140,11 +157,13 @@ def mute(bh, msg, mute=True):
 
 @dispatcher(r'^unmute\s*')
 def unmute(bh, msg, mute=False):
+    """Unmute"""
     return globals()['mute'](bh, msg, mute=False)
 
 
 @dispatcher(r'^react\s*')
 def react(bh, msg, mute=False):
+    """Create a test reaction"""
     bh.react(msg, 'check_mark')
 
 
@@ -177,8 +196,10 @@ for text_item in TEXTS.keys():
 
 
 @dispatcher(r'^raise_exception\s*')
-def react(bh, msg, mute=False):
+def raise_exception(bh, msg, mute=False):
     raise RuntimeError("Raising requested exception")
+
+
 
 
 
@@ -198,7 +219,9 @@ class MyBotHandler(object):
 
         # Terminal-based version doesn't do reactions
         if isinstance(bot_handler, TerminalBotHandler):
-            bot_handler.react = lambda msg, react: None
+            def dummy_react(msg, react):
+                print("REACT:", react)
+            bot_handler.react = dummy_react
 
         try:
             # Test sender email for authorization to send
