@@ -29,6 +29,13 @@ SCENES = {
     'screen': 'Desktop (remote)+camera',
     }
 
+TEXTS = {
+    # 'ID': ['obs_source_name', ...],
+    'front': [
+        'Timing text'
+             ]
+    }
+
 
 #### End user configuration
 
@@ -58,9 +65,10 @@ ws.disconnect()
 
 DISPATCHERS = {
     }
-def dispatcher(regex):
+def dispatcher(regex, regex_options=re.I|re.M):
+    """Decorator to add a function to DISPATCHERS"""
     if isinstance(regex, str):
-        regex = re.compile(regex, re.I|re.M)
+        regex = re.compile(regex, regex_options)
     def _(f):
         DISPATCHERS[regex] = f
         return f
@@ -97,9 +105,15 @@ for scenename in SCENES.keys():
 
 @dispatcher('^help\s*')
 def help_(bh, msg):
+    """Print help text"""
+    scenes = ', '.join('`%s`'%x for x in SCENES.keys())
+    texts = ', '.join('`%s`'%x for x in TEXTS.keys())
     lines = [
-        "* scene switching: `title`, `gallery`, `screen`, `blank`",
+        "* 'switch [scene-name]` or just `[scene-name]`: switch scene",
+        "* 'text [text-item] [content]` or just `[text-item] [content]`: adjust text content",
         "* `mute`, `unmute` (only Zoom audio, not broadcaster's microphone)",
+        "* scenes: %s"%scenes,
+        "* text-items: %s"%texts,
         "* `help`",
         ]
     return '\n'.join(lines)
@@ -132,6 +146,35 @@ def unmute(bh, msg, mute=False):
 @dispatcher(r'^react\s*')
 def react(bh, msg, mute=False):
     bh.react(msg, 'check_mark')
+
+
+@dispatcher(r'^text\s+(\S+)\s+(.*)', re.I|re.M|re.DOTALL)
+def text(bh, msg, textname, content):
+    """Update the content of a text field.
+
+    Since we may want to keep several in sync, update over a loop.
+    """
+    ws.connect()
+    updated_status = [ ]
+    content = content.strip()
+    content = content.replace('\\n', '\n')
+    # Loop over the different text fields
+    for textid in TEXTS[textname]:
+        ret = ws.call(requests.SetTextFreetype2Properties(textid, text=content))
+        ret = ws.call(requests.GetTextFreetype2Properties(textid))
+        updated_status.append(ret.getText() == content)
+    ws.disconnect()
+    # Check that everything was successfully updated
+    if all(updated_status):
+        bh.react(msg, 'check_mark')
+
+
+for text_item in TEXTS.keys():
+    @dispatcher('^%s\s+(.*)'%text_item)
+    def update_text(bh, msg, content, text_item=text_item):
+        return text(bh, msg, text_item, content)
+
+
 
 @dispatcher(r'^raise_exception\s*')
 def react(bh, msg, mute=False):
